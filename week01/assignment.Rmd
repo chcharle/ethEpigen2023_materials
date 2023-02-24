@@ -1,0 +1,14 @@
+---
+title: "assignment"
+author: "Charles Cheruparambil"
+date: "2023-02-24"
+output: html_document
+---
+
+
+## R Markdown
+
+```{r sessionInfo}
+library(epiwraps)
+print(sessionInfo())
+```
