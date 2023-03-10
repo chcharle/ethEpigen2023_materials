@@ -1,0 +1,74 @@
+---
+title: "assignment_2"
+author: "Charles Cheruparambil"
+date: "2023-03-03"
+output: html_document
+---
+```{r}
+suppressPackageStartupMessages({
+  library(AnnotationHub)
+  library(ensembldb)
+  library(GenomicRanges)
+  library(epiwraps)
+})
+```
+
+```{r}
+ah <- AnnotationHub()
+# to query the AH programmatically:
+q_mouse <- query(ah, c("Mus Musculus", "EnsDb", "102", "GRCm38"))
+q_mouse
+# to browse the AnnotationHub interactively:
+#display(ah)
+ensdb_mouse <- ah[["AH89211"]]
+ensdb_mouse
+```
+
+
+```{r}
+q_mouse_genome_seq <- query(ah, c("Mus Musculus", "dna_sm", "2bit", "GRCm38"))
+q_mouse_genome_seq
+ensdb_mouse_genome_seq <- ah[["AH49775"]]
+ensdb_mouse_genome_seq
+```
+
+```{r}
+q_drosophila_genome_seq <- query(ah, c("Drosophila Melanogaster", "dna_sm", "2bit", "BDGP6"))
+q_drosophila_genome_seq
+ensdb_drosophila_genome_seq <- ah[["AH49674"]]
+ensdb_drosophila_genome_seq
+```
+
+```{r}
+genes_mouse <- genes(ensdb_mouse)
+length(unique(genes_mouse))
+genes_mouse_protein_coding <- genes(ensdb_mouse, filter=GeneBiotypeFilter("protein_coding"))
+
+length(unique(genes_mouse_protein_coding$geneid))
+length(unique(genes_mouse_protein_coding$symbol))
+```
+
+```{r}
+# extract transcripts:
+txs <- transcripts(ensdb_mouse)
+txs
+seqlevels(txs)
+head(txs$tx_biotype)
+head(txs[,"tx_biotype"])
+table(seqnames(txs))
+table(txs$tx_biotype)
+# supportedFilters(), tx_biotype
+exs <- exons(ensdb_mouse, column=c("tx_id"))
+exs
+# we limit ourselves to protein-coding transcripts:
+exsPerTx <- exonsBy(ensdb_mouse, column=c("tx_id","tx_biotype"), 
+                    filter=TxBiotypeFilter("protein_coding"))
+exsPerTx
+# what are the transcripts that have more than on exon / sub-element:
+head(which(lengths(exsPerTx)>1))
+```
+
+```{r}
+nbExonsPerPCtx <- lengths(exsPerTx)
+hist(nbExonsPerPCtx)
+```
