@@ -1,0 +1,119 @@
+---
+title: "assignment"
+author: "Charles Cheruparambil"
+date: "2023-03-16"
+output: html_document
+---
+
+```{r}
+setwd("~/Documents/ETH/MSc HST/Bioinformatic Approaches to Regulatory Genomics and Epigenomics/week 3")
+install.packages("dbplyr", repos = "http://cran.us.r-project.org")
+install.packages("rlang", repos = "http://cran.us.r-project.org")
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("Rsubread")
+
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("Rfastp")
+suppressPackageStartupMessages({
+  library(AnnotationHub)
+  library(Rsubread)
+  library(rtracklayer)
+  library(Biostrings)
+  library(Rfastp)
+  library(epiwraps)
+})
+ah <- AnnotationHub()
+```
+Download the following Drosophila ChIP-seq for the protein CTCF and go through primary analysis:
+```{r, eval=FALSE}
+options(timeout=3600)
+dir.create("raw")
+download.file("https://www.encodeproject.org/files/ENCFF127RRR/@@download/ENCFF127RRR.fastq.gz", dest="raw/CTCF.fastq.gz")
+```
+
+
+## Using Rfastp for 'raw reads'
+```{r}
+dir.create("rfastp.trimmed")
+qc <- lapply(c(CTCF="raw/CTCF.fastq.gz"), FUN=function(x){
+  Rfastp::rfastp(x, thread=4, overrepresentationAnalysis=TRUE,
+                 outputFastq=file.path("rfastp.trimmed/",gsub("\\.fastq\\.gz$","",basename(x))))
+})
+```
+
+This will create an html report with before/after QC plots, as well as a trimmed
+and filtered fastq file. Furthermore, the R output object (equivalent to the .json 
+stats also saved by the program) can be used to generate the QC plots inside a
+markdown, for example:
+
+```{r}
+Rfastp::curvePlot(qc$CTCF, curve="content_curves")
+```
+# Alignment
+
+## Using Rsubread
+
+### Building a genome index for mapping
+
+This we have to do only once for a genome, and can then re-use across projects
+
+```{r, eval=FALSE}
+# we get the genome sequence from AnnotationHub
+genome <- ah[["AH49674"]]
+# we create a new directory that will contain the genome index
+dir.create("BDGP6_genome")
+# we write the genome sequence in fasta format
+export(import.2bit(genome), "BDGP6_genome/genome.fasta.gz", compress=TRUE)
+# we build a Rsubread index
+Rsubread::buildindex("BDGP6_genome/rsubread", reference="BDGP6_genome/genome.fasta.gz")
+```
+
+### Alignment
+```{r, eval=FALSE}
+dir.create('aligned')
+```
+
+```{r}
+align.stats <- Rsubread::align(index="BDGP6_genome/rsubread", type="dna",
+                               readfile1=c("raw/CTCF.fastq.gz"),
+                               output_file=c("aligned/CTCF.bam"),
+                               nthreads=6, sortReadsByCoordinates=TRUE)
+align.stats
+```
+Based on this table, we can see that out of the total 3,884,614 reads generated, 3,515,416 reads were successfully mapped to the reference genome or transcriptome. Among the mapped reads, 3,057,440 reads were uniquely mapped to a single location in the reference genome or transcriptome, while 457,976 reads mapped to multiple locations. Additionally, 369,198 reads could not be aligned to the reference genome or transcriptome. The table also indicates that there were 1,860 indels found in the aligned reads compared to the reference genome or transcriptome.
+
+Overall, this table provides information on the quality of the alignment of sequencing reads to the reference genome or transcriptome, which is an essential step in many genomic analyses, such as gene expression profiling, variant calling, and genome assembly.
+
+## Using R
+
+This alternative is currently still very beta when it comes to using the input control, so here we will do without it. For the purpose of this course, this is offered as an alternative for windows users who can't install MACS2/3:
+
+```{r}
+peaks <- callPeaks("aligned/CTCF.bam", fragLength=50L)
+# if we want to save it as a bed file:
+dir.create('peaks')
+rtracklayer::export.bed(peaks, "peaks/peaks.bed")
+```
+Overall, this type of analysis is useful for identifying regions of the genome that are involved in specific biological processes or diseases and can help researchers gain a better understanding of the underlying mechanisms. However, it is important to note that this analysis only identifies candidate regions and further experiments or functional studies are required to confirm their biological relevance.
+```{r}
+head(peaks)
+region <- as.character(granges(peaks[1]))
+plotSignalTracks(c(CTCF="aligned/CTCF.bam"), region=region)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
