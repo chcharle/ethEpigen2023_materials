@@ -1,0 +1,116 @@
+---
+title: "Assignment"
+author: "Charles Cheruparambil"
+date: "2023-03-23"
+output: html_document
+---
+Load the libraries:
+```{r}
+suppressPackageStartupMessages({
+  library(AnnotationHub)
+  library(rtracklayer)
+  library(epiwraps)
+  library(GenomicRanges)
+})
+ah <- AnnotationHub()
+```
+
+#Assignment
+
+Find and download from ENCODE the peaks (i.e. bed-like format) for the following in mouse embryonic stem cells (mESC) :
+
+-Transcription factor p300
+-histone modifications H3K4me3, H3K4me1, H3K27ac, and H3K27me3
+-> (when there are replicates, we recommend using the bed file denoted as “conservative IDR thresholded peaks”)
+
+##Downloading the processed data
+https://www.encodeproject.org/ -> Experiment Search -> apply Filter -> choose filetype 'bed narrow' of experiment summary -> import data:
+###Transcription factor p300:
+```{r}
+download.file("https://www.encodeproject.org/files/ENCFF460EOA/@@download/ENCFF460EOA.bed.gz", dest="tf_p300.bed.gz")
+tf_p300_peaks <- rtracklayer::import("tf_p300.bed.gz", format="narrowPeak")
+tf_p300_peaks
+```
+
+-> GRanges object with 28341 ranges and 6 metadata columns -> total 28341 peaks.
+
+### H3K4me3
+```{r}
+download.file("https://www.encodeproject.org/files/ENCFF671UNN/@@download/ENCFF671UNN.bed.gz", dest="hist_H3K4me3.bed.gz")
+hist_H3K4me3_peaks <- rtracklayer::import("hist_H3K4me3.bed.gz", format="narrowPeak")
+```
+### H3K4me1
+```{r}
+download.file("https://www.encodeproject.org/files/ENCFF333IJH/@@download/ENCFF333IJH.bed.gz", dest="hist_H3K4me1.bed.gz")
+hist_H3K4me1_peaks <- rtracklayer::import("hist_H3K4me1.bed.gz", format="narrowPeak")
+```
+### H3K27ac
+```{r}
+download.file("https://www.encodeproject.org/files/ENCFF857FNO/@@download/ENCFF857FNO.bed.gz", dest="hist_H3K27ac.bed.gz")
+hist_H3K27ac_peaks <- rtracklayer::import("hist_H3K27ac.bed.gz", format="narrowPeak")
+```
+
+### H3K27me3
+```{r}
+download.file("https://www.encodeproject.org/files/ENCFF105NKG/@@download/ENCFF105NKG.bed.gz", dest="hist_H3K27me3.bed.gz")
+hist_H3K27me3_peaks <- rtracklayer::import("hist_H3K27me3.bed.gz", format="narrowPeak")
+```
+##QUESTION: Of the p300 peaks, what proportion overlap each of the marks?
+
+### H3K4me3
+
+```{r}
+peaksOverlapsH3K4me3 <- overlapsAny(tf_p300_peaks, hist_H3K4me3_peaks)
+table(peaksOverlapsH3K4me3)
+```
+11130 of 24596 p300 peaks overlap with H3K4me3 marks.
+
+Calculate proportion of overlap: true overlap of marks/total peaks:
+```{r}
+table(peaksOverlapsH3K4me3)[2]/(table(peaksOverlapsH3K4me3)[1]+table(peaksOverlapsH3K4me3)[2])
+```
+Proportion of overlap: ca. 39.3%
+
+
+### H3K4me1
+
+```{r}
+peaksOverlapsH3K4me1 <- overlapsAny(tf_p300_peaks, hist_H3K4me1_peaks)
+table(peaksOverlapsH3K4me1)
+```
+7919 of 24596 p300 peaks overlap with H3K4me1 marks.
+
+Calculate proportion of overlap: true overlap of marks/total peaks:
+```{r}
+table(peaksOverlapsH3K4me1)[2]/(table(peaksOverlapsH3K4me1)[1]+table(peaksOverlapsH3K4me1)[2])
+```
+Proportion of overlap: ca. 27.9%
+
+### H3K27ac
+
+```{r}
+peaksOverlapsH3K27ac <- overlapsAny(tf_p300_peaks,hist_H3K27ac_peaks )
+table(peaksOverlapsH3K27ac)
+```
+16491 of 24596 p300 peaks overlap with H3K27ac marks.
+
+Calculate proportion of overlap: true overlap of marks/total peaks:
+```{r}
+table(peaksOverlapsH3K27ac)[2]/(table(peaksOverlapsH3K27ac)[1]+table(peaksOverlapsH3K27ac)[2])
+```
+Proportion of overlap: ca. 58.1%
+
+### H3K27me3
+
+```{r}
+peaksOverlapsH3K27me3 <- overlapsAny(tf_p300_peaks,hist_H3K27me3_peaks )
+table(peaksOverlapsH3K27me3)
+```
+72 of 24596 p300 peaks overlap with H3K27me3 marks.
+
+Calculate proportion of overlap: true overlap of marks/total peaks:
+```{r}
+table(peaksOverlapsH3K27me3)[2]/(table(peaksOverlapsH3K27me3)[1]+table(peaksOverlapsH3K27me3)[2])
+```
+Proportion of overlap: ca. 0.3%
+
