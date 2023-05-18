@@ -1,0 +1,136 @@
+---
+title: “Assignment Week 10”
+author: “Charles Cheruparambil”
+date: “2023-05-16”
+output: html_document
+---
+```{r}
+suppressPackageStartupMessages({
+  library(GenomicRanges)
+  library(epiwraps)
+  library(ggplot2)
+  library(rGREAT)
+})
+```
+
+#Assignment
+
+-Download and decompress the following archive:
+  -https://ethz-ins.org/content/w10.assignment.zip
+  -This contains the bigwig files and peaks (bed) files for three TFs of the CREB family (all restricted to chr1; aligned against the hg38 genome)
+
+## Download the data
+
+```{r, eval=FALSE}
+options(timeout = 6000)
+download.file("https://ethz-ins.org/content/w10.assignment.zip", "w10.assignment.zip")
+unzip("w10.assignment.zip")
+list.files()
+```
+
+
+To get a clearer picture, focus on high-confidence peaks from each factor to define the universe of regions, e.g.:
+
+```{r}
+peaks <- list.files(pattern="bed$")
+# we first import the peaks
+peaks <- lapply(peaks, rtracklayer::import.bed)
+# we'll focus on the high-quality peaks
+peaks <- lapply(peaks, FUN=function(x) x[x$score>800])
+# Prepare the regions and the tracks
+# we get the union of non-redundant regions
+regions <- reduce(unlist(GRangesList(peaks)))
+tracks <- list.files(pattern="bw$")
+```
+
+## Plot
+
+```{r}
+ml <- signal2Matrix(tracks, regions, extend=2000)
+
+set.seed(123)  # to ensure that it gives the same results everytime
+
+# plotEnrichedHeatmaps(ml)
+```
+
+## Clustering
+
+Use clustering and visualization to illustrate the relationship between the binding of the different proteins
+
+```{r}
+set.seed(123)  # to ensure that it gives the same results everytime
+cl <- clusterSignalMatrices(ml, k=4)
+table(cl)
+head(cl)
+length(cl)
+length(regions)
+
+regions$cluster <- cl
+```
+
+Plotting the clusters:
+
+```{r}
+# plotEnrichedHeatmaps(ml, row_split=cl, trim=0.99, colors=c("white","darkred"))
+```
+
+```{r}
+cl2 <- clusterSignalMatrices(ml, k=2:10)
+ggplot(cl2$varExplained, aes(k, varExplained)) + geom_line()
+```
+
+
+
+Adding colors:
+
+```{r}
+mycolors <- c("1"="red", "2"="blue", "3"="darkgreen", "4"="black")
+# plotEnrichedHeatmaps(ml, row_split=cl, mean_color=mycolors)
+```
+Creb1 is observed in all clusters, whereas Creb3 is predominantly found in clusters 1 and 2, and Creb3L1 is primarily detected in clusters 1 and 3.
+
+
+Plotting just the averages:
+
+```{r}
+d <- meltSignals(ml, splitBy=cl)
+ggplot(d, aes(position, mean, colour=sample)) + geom_line(size=1.2) + facet_wrap(~split)
+```
+When plotting the signal for each cluster, the most notable disparity is observed in cluster 3, where Creb1 and Creb3L1 exhibit significantly higher signal compared to Creb3. Conversely, the differences in signal between cluster 1 and cluster 3 appear to be relatively minor.
+
+
+Clustering using relative signal instead:
+
+```{r}
+cl_rel_sig <- clusterSignalMatrices(ml, k=4, scaleRows = TRUE)
+d <- meltSignals(ml, splitBy=cl_rel_sig)
+ggplot(d, aes(position, mean, colour=sample)) + geom_line() + facet_wrap(~split)
+# plotEnrichedHeatmaps(ml, row_split = cl_rel_sig, scale_rows = "global")
+```
+By using relative values, the discrepancies become significantly more evident, resulting in a higher explained variance (80%). At this point, each signal strongly dominates a specific cluster: Creb1 corresponds to cluster 1, Creb3 to cluster 2, and Creb3L1 (along with Creb1) to cluster 3.
+
+## Enrichment analysis
+
+Find what's enriched in one cluster with respect to the others:
+
+```{r}
+# we first split the regions by cluster:
+split_regions <- split(regions, cl_rel_sig)
+
+# we send the data to the GREAT server to run an enrichment analysis
+job <- submitGreatJob(gr=split_regions[["4"]], bg=regions, species="hg38")
+res <- getEnrichmentTables(job)
+names(res) <- c("Cluster 1", "Cluster 2", "Cluster 3")
+```
+
+We plot the top Biological Processes:
+
+```{r, fig.width=9, fig.height=6}
+bp <- res$`GO Biological Process`
+head(bp)
+
+# ggplot(head(bp,15), aes(Hyper_Fold_Enrichment, reorder(name, Hyper_Adjp_BH), size=Hyper_Foreground_Region_Hits, color=-log10(Hyper_Adjp_BH))) + geom_point() + scale_color_viridis_c()
+
+```
+The enrichment analysis conducted on cluster 3 indicates that these regions are associated with genes involved in receptor binding and activity. Specifically, these receptors are predominantly linked to cytokines and play a role in various cell death pathways.
+The enrichment map reveals three biological processes that exhibit a significantly higher hyper fold enrichment than expected by chance: regulation of mononuclear cell proliferation, leukocyte proliferation, and leukocyte proliferation on its own. This finding suggests that the investigated cluster consists of genes involved in immunoregulatory functions, which aligns with the known immunological role of CREB, the focus of our study.
