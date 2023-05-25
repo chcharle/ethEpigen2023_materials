@@ -1,0 +1,159 @@
+---
+title: "assignment"
+output: html_document
+date: "2023-05-25"
+---
+# Assignment
+
+1. Plot a heatmap of the methylation levels of the genes in top 5 DMR regions.
+  - hint: use `getMeth(..., regions=...)` and for the heatmap you can adapt the code we used for the promoters.    
+    
+    
+2. Run an enrichment analysis (rGREAT) of the genes within DMRs (see [./data_practical/dmr.rds](https://github.com/ETHZ-INS/ethEpigen2023_materials/tree/main/week11/w11_practical)) vs all genes of chromosome 22.   
+  - Describe what your enrichment analysis is testing exactly & describe the results.   
+    
+Save your assignment in a R markdown named assignment.Rmd, render it, and push the html file to this folder in your github repository
+
+## Load the libraries
+```{r}
+getwd()
+```
+
+```{r}
+suppressPackageStartupMessages({
+  library(GenomicRanges)
+  library(epiwraps)
+  library(ggplot2)
+  library(rGREAT)
+  library(AnnotationHub)
+  library(ensembldb)
+  library(bsseq)
+  library(BiocParallel)
+  library(edgeR)
+  library(DMRcate)
+  library(rtracklayer)
+  library(sechm)
+  library(pheatmap)
+  library(viridis)
+  library(data.table)
+  library(SummarizedExperiment)
+  library(limma)
+})
+
+set.seed(40)
+```
+## Load the data
+
+Download:
+```{r, download}
+#options(timeout = 6000)
+#download.file("https://ethz-ins.org/content/w11_practical.zip", "w11_practical.zip")
+#unzip("w11.practical.zip")
+```
+
+### Bsseq object
+The Bisulfite-sequenncing (BS-seq) data we are looking is from the [bsseqData](https://bioconductor.org/packages/release/data/experiment/html/bsseqData.html) package.
+It contains colon cancer samples with 3 patients with each a colon cancer and normal colon sample. 
+Here we only look at chromosome 22. 
+
+```{r, bsseq}
+bs <- readRDS("./w11_practical/bs.rds")
+pData(bs)
+```
+
+## Differential Methylation Testing
+
+
+### Testing
+
+Get annotations (hs):
+```{r}
+# genes
+ah <- AnnotationHub()
+ensdb <- ah[["AH109336"]]
+
+chr22 <-  GRanges(seqnames=Rle(c("22")), 
+                  ranges = IRanges(1, end=195471971))
+genesChr22 <- genes(ensdb, columns=c("gene_seq_start", "gene_seq_end", "gene_name"),
+                    filter=GRangesFilter(chr22))
+seqlevelsStyle(genesChr22) <- "UCSC"
+```
+
+Retrieve metyhlation levels and visualize:
+```{r, look at bsseq objects}
+metG <- bsseq::getMeth(bs, 
+                        regions=genesChr22, 
+                        what="perRegion")
+colnames(metG) <- colnames(bs)
+rownames(metG) <- genesChr22$gene_name
+metG <- metG[!is.na(rowSums(metG)),]  # Corrected line
+
+library(viridis)
+library(pheatmap)
+annotationCol <- as.data.frame(pData(bs)[,c("Type","Pair")])
+rownames(annotationCol) <- colnames(metG)
+pheatmap::pheatmap(metG, 
+                   cluster_rows=TRUE,
+                   cluster_cols=FALSE,
+                   annotation_col=annotationCol,
+                   show_rownames = TRUE,
+                   color=rocket(10))
+```
+
+Differential methylation testing: 
+```{r, dm testing}
+design <- model.matrix(~Type+Pair, data=pData(bs)) # design matrix
+
+# adapt for methylation data
+methdesign <- modelMatrixMeth(design)
+
+seqAnnot <- sequencing.annotate(bs, methdesign, all.cov=TRUE, coef="Typenormal")
+dmrcateRes <- dmrcate(seqAnnot, C=2, min.cpgs = 10, pcutoff=0.01)
+
+dmrRanges <- extractRanges(dmrcateRes, genome="hg38")
+saveRDS(dmrRanges, "./w11_practical/dmr.rds")
+
+DMR.plot(dmrRanges, dmr=1,phen.col=c(rep("red", 3), rep("green",3)), CpGs=bs, genome="hg38")
+dmrRangesGenes <- dmrRanges[!is.na(dmrRanges$overlapping.genes)]
+```
+
+Obtain the coordinates of the genes within DMRs. 
+```{r, get the DM genes}
+# Get the genes within Differentially methylated regions
+topIdx <- order(dmrRangesGenes$min_smoothed_fdr)[1:4]
+genesDmr <- unlist(tstrsplit(dmrRangesGenes[topIdx]$overlapping.genes, split=", "))
+genesDmr <- genesDmr[!is.na(genesDmr)]
+dmrGenes <- genesChr22[genesChr22$gene_name %in% genesDmr]
+dmrGenes
+```
+
+# Enrichment analysis (rGREAT) of the genes within DMRs vs all genes of chromosome 22
+
+```{r}
+# only genes within the top 5 DMRs
+job <- submitGreatJob(gr=dmrGenes, bg=genesChr22, species="hg38")
+res <- getEnrichmentTables(job)
+names(res)
+bp <- res$`GO Biological Process`
+head(bp)
+ggplot(head(bp,15), aes(Hyper_Fold_Enrichment, reorder(breakStrings(name, 10, "\n"), Hyper_Adjp_BH), size=Hyper_Foreground_Region_Hits, color=-log10(Hyper_Adjp_BH))) + geom_point() + scale_color_viridis_c(limits = c(0, 5)) + labs(title = "Biological Processes in the Top 5 DMRs of Chromosome 22", x = "Hyper Fold Enrichment", y = "Name of the Biological Process", colour = "Minus Logarithm of the \nAdjusted Hypergeometric p-Values \n(-log10(Hyper_Adjp_BH))", size = "Hyper Foreground Region Hits") + theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+# all genes within DMRs
+genesDmr_all <- unlist(tstrsplit(dmrRangesGenes$overlapping.genes, split=", "))
+genesDmr_all <- genesDmr_all[!is.na(genesDmr_all)]
+dmrGenes_all <- genesChr22[genesChr22$gene_name %in% genesDmr_all]
+job <- submitGreatJob(gr=dmrGenes_all, bg=genesChr22, species="hg38")
+res <- getEnrichmentTables(job)
+names(res)
+bp <- res$`GO Biological Process`
+head(bp)
+ggplot(head(bp,15), aes(Hyper_Fold_Enrichment, reorder(breakStrings(name, 10, "\n"), Hyper_Adjp_BH), size=Hyper_Foreground_Region_Hits, color=-log10(Hyper_Adjp_BH))) + geom_point() + scale_color_viridis_c(limits = c(0, 5)) + labs(title = "Biological Processes in all DMRs of Chromosome 22", x = "Hyper Fold Enrichment", y = "Name of the Biological Process", colour = "Minus Logarithm of the \nAdjusted Hypergeometric p-Values \n(-log10(Hyper_Adjp_BH))", size = "Hyper Foreground Region Hits") + theme(plot.title = element_text(hjust = 0.5))
+```
+
+#Discussion
+
+Within the plot, we observe the outcomes derived from the enrichment analysis focusing on differentially methylated regions. This analysis entails comparing the genomic areas of interest to the background genome, aiming to identify functional annotations that exhibit an over-representation within the input regions. The regulation of gene expression occurs through methylation, which involves the recruitment of repressing proteins or the inhibition of transcription factor binding. Consequently, we can anticipate that the gene ontology processes enriched with methylated genes would exhibit lower expression levels within the cells.
+
+The "biological regulation" GO term emerges as the most significantly enriched biological process. Additionally, the other highly enriched terms pertain to similar overarching processes, such as "regulation of biological quality" and "regulation of cellular process." This finding aligns with the understanding that in cancer, normal cell regulatory mechanisms are disrupted, leading to aberrant cell cycle progression and excessive growth. It is worth noting that cancer cells commonly experience disruptions in cell communication and signaling pathways as well.
